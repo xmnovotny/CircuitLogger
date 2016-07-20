@@ -5,6 +5,7 @@ require("lib/conditions")
 
 local initialized = false
 local EOL = "\r\n"
+local CSV_SEP = ";"
 local status = global.ccLoggerStatus
 
 defines.wire_type.combined = 10
@@ -75,10 +76,10 @@ end
 
 local function add_csv_text(text, csv_line, csv_columns, position)
   while csv_columns<position do
-    csv_line = csv_line .. ";"
+    csv_line = csv_line .. CSV_SEP
     csv_columns = csv_columns+1
   end  
-  csv_line = csv_line .. text .. ";"
+  csv_line = csv_line .. text .. CSV_SEP
   csv_columns = csv_columns+1
   return csv_line, csv_columns
 end
@@ -94,7 +95,7 @@ local function get_signals_header(signals, csv_line, csv_columns, csv_position, 
           first = true
           csv_line, csv_columns = add_csv_text(binName .. "(" .. i .. ")", csv_line, csv_columns, csv_position)
         else
-          csv_line = csv_line .. binName .. "(" .. i .. ")" .. ';'
+          csv_line = csv_line .. binName .. "(" .. i .. ")" .. CSV_SEP
           csv_columns = csv_columns + 1  
         end
       end  
@@ -106,7 +107,7 @@ local function get_signals_header(signals, csv_line, csv_columns, csv_position, 
       first = true
       csv_line, csv_columns = add_csv_text(name, csv_line, csv_columns, csv_position)
     else
-      csv_line = csv_line .. name .. ';'
+      csv_line = csv_line .. name .. CSV_SEP
       csv_columns = csv_columns + 1  
     end
   end
@@ -132,15 +133,15 @@ local function combine_signals(signalsA, signalsB)
 end
 
 local function get_dump_headers(start_tick)
-  local headerLoggers = ";Logger name:;"
-  local headerWires = ";Wire:;"
-  local headerSignals = "Game tick;Play Time;"
+  local headerLoggers = CSV_SEP .. "Logger name:" .. CSV_SEP
+  local headerWires = CSV_SEP .. "Wire:" .. CSV_SEP
+  local headerSignals = "Game tick" .. CSV_SEP .. "Play Time" .. CSV_SEP
   local headerLoggersC = 2
   local headerWiresC = 2
   local headerSignalsC = 2
   for i,ccLogger in ipairs(global.ccLoggers) do
     log = get_ccLogger_log(ccLogger, start_tick)    
-    if log ~= nil then
+    if log ~= nil and (ccLogger.log_red or ccLogger.log_green or ccLogger.log_combined) then
       ccLogger.current_dump_log = log
       local name = ccLogger.name
       if ccLogger.name == nil or ccLogger.name == "" then name = i end
@@ -184,20 +185,20 @@ local function get_signal_values_csv(signals,binary_signals_def)
       local bin = to_binary(count)
       for i,_ in pairs(binary_signals_def[name]) do
         if (bin[i] ~= nil) then v = bin[i] else v = 0 end
-        csv = csv .. v .. ';'
+        csv = csv .. v .. CSV_SEP
       end
     end
-    csv = csv .. count .. ';'
+    csv = csv .. count .. CSV_SEP
   end
-  if csv == "" then csv = ";" end
+  if csv == "" then csv = CSV_SEP end
   return csv
 end
 
 local function get_dump_line(change_tick, start_tick)
-  local line = change_tick .. ';' .. get_fmt_play_time(change_tick) .. ';'
+  local line = change_tick .. CSV_SEP .. get_fmt_play_time(change_tick) .. CSV_SEP
   for i,ccLogger in ipairs(global.ccLoggers) do
     local log = ccLogger.current_dump_log    
-    if log ~= nil then
+    if log ~= nil and (ccLogger.log_red or ccLogger.log_green or ccLogger.log_combined) then
       local data_change = log.data[change_tick] or {}
       local used_signals = log.used_signals
       if (ccLogger.log_red) then
@@ -241,6 +242,12 @@ local function dump_pending()
    	game.write_file("circuit_logger/" .. filename .. ".csv", data)
 
     table.remove(status.to_dump, 1)
+    for _,ccLogger in ipairs(global.ccLoggers) do
+      ccLogger.current_dump_log = nil
+      if (ccLogger.to_dump[1] ~= nil and ccLogger.to_dump[1].start_tick==log.start_tick) then
+        table.remove(ccLogger.to_dump, 1)
+      end
+    end
   end
 end
 
@@ -506,7 +513,7 @@ end)
 
 function get_status_text()
   local txtStatus
-  if (status.logging) then txtStatus = {"status-logging"} else txtStatus = {"status-stopped"} end
+  if (status.logging) then txtStatus = {"ccl-status-logging"} else txtStatus = {"ccl-status-stopped"} end
   return txtStatus
 end
 
@@ -544,7 +551,7 @@ function expand_gui(player)
 	if (frame) then
 		frame.destroy()
 	else
-		frame = player.gui.left.add{type="frame", name="circuit_logger_settings", direction="vertical", caption={"dlg-settings"}}
+		frame = player.gui.left.add{type="frame", name="circuit_logger_settings", direction="vertical", caption={"ccl-dlg-settings"}}
     
 		status_fl = frame.add{type="flow", name="status_fl", direction="horizontal"}
 		status_fl.add{type="label", name="circuit_logger_status_label", caption={"circuit-logger-status"}}        
@@ -552,23 +559,23 @@ function expand_gui(player)
 		status_fl.add{type="label", caption="("}
 		status_fl.add{type="label", name="circuit_logger_trigger_name", caption=get_trigger_text()}
 		status_fl.add{type="label", caption="), "}
-		status_fl.add{type="label", caption={"logged-records"}}
+		status_fl.add{type="label", caption={"ccl-logged-records"}}
 		status_fl.add{type="label", name="circuit_logger_records", caption=get_count_records()}
 
 		trigger_fl = frame.add{type="flow", name="trigger_fl", direction="horizontal"}
-		trigger_fl.add{type="checkbox", name="ccl_trigger_off_after", caption={"trigger-off-after-ticks"}, state = status.trigger_off_after==true}
+		trigger_fl.add{type="checkbox", name="ccl_trigger_off_after", caption={"ccl-trigger-off-after-ticks"}, state = status.trigger_off_after==true}
 		trigger_fl.add{type="textfield", name="ccl_trigger_off_ticks", text = status.trigger_off_ticks, style="number_textbox_style_circuit_logger"}
 
 		ignored_fl = frame.add{type="flow", name="ignored_fl", direction="horizontal"}
-		ignored_fl.add{type="label", caption={"ignored-signals-caption"}}        
+		ignored_fl.add{type="label", caption={"ccl-ignored-signals-caption"}}        
 		ignored_fl.add{type="textfield", name="ccl_ignored_main", text=join(status.ignored_signals,","), style="wide_textbox_style_circuit_logger"}
 
 
     
 		buttons = frame.add{type="flow", name="buttons", direction="horizontal"}
-		buttons.add{type="button", name="ccl_save_settings", caption={"msg-button-save"}}
-		buttons.add{type="button", name="circuit_logger_trigger_on", caption={"msg-checkbox-trigger-on"}}
-		buttons.add{type="button", name="circuit_logger_trigger_off", caption={"msg-checkbox-trigger-off"}}
+		buttons.add{type="button", name="ccl_save_settings", caption={"ccl-button-save"}}
+		buttons.add{type="button", name="circuit_logger_trigger_on", caption={"ccl-checkbox-trigger-on"}}
+		buttons.add{type="button", name="circuit_logger_trigger_off", caption={"ccl-checkbox-trigger-off"}}
 	end
 end
 
@@ -619,32 +626,32 @@ function new_ccLogger_gui(player,ccLogger)
   if (is_valid(player) and ccLogger ~= nil) then
   	player_gui = player.gui.left
     
-  	gui = gui_or_new(player_gui,{type="frame", name="circuit_logger", caption={"msg-window-title"}, direction="vertical" })
+  	gui = gui_or_new(player_gui,{type="frame", name="circuit_logger", caption={"ccl-window-title"}, direction="vertical" })
     
    	name_flow = gui_or_new(gui,{type="flow", name="name_flow",direction="horizontal"})
-  	gui_or_new(name_flow,{type="label", name="ccl_name_label", caption={"msg-name-caption"}})
+  	gui_or_new(name_flow,{type="label", name="ccl_name_label", caption={"ccl-name-caption"}})
   	gui_or_new(name_flow,{type="textfield", name="ccl_name", text=ccLogger.name})
     
   	checkboxes = gui_or_new(gui,{type="flow", name="checkboxes",direction="horizontal"})
-  	gui_or_new(checkboxes,{type="checkbox", name="ccl_trigger_on",caption={"msg-checkbox-trigger-on"}, state = ccLogger.trigger_on})
-  	gui_or_new(checkboxes,{type="checkbox", name="ccl_trigger_off",caption={"msg-checkbox-trigger-off"}, state = ccLogger.trigger_off})
-  	gui_or_new(checkboxes,{type="checkbox", name="ccl_logging_on",caption={"msg-checkbox-logging-on"}, state = ccLogger.logging_on})
+  	gui_or_new(checkboxes,{type="checkbox", name="ccl_trigger_on",caption={"ccl-checkbox-trigger-on"}, state = ccLogger.trigger_on})
+  	gui_or_new(checkboxes,{type="checkbox", name="ccl_trigger_off",caption={"ccl-checkbox-trigger-off"}, state = ccLogger.trigger_off})
+  	gui_or_new(checkboxes,{type="checkbox", name="ccl_logging_on",caption={"ccl-checkbox-logging-on"}, state = ccLogger.logging_on})
     
   	checkboxes2 = gui_or_new(gui,{type="flow", name="checkboxes2",direction="horizontal"})
-  	gui_or_new(checkboxes2,{type="checkbox", name="ccl_log_red",caption={"msg-checkbox-log-red"}, state = ccLogger.log_red})
-  	gui_or_new(checkboxes2,{type="checkbox", name="ccl_log_green",caption={"msg-checkbox-log-green"}, state = ccLogger.log_green})
-  	gui_or_new(checkboxes2,{type="checkbox", name="ccl_log_combined",caption={"msg-checkbox-log-combined"}, state = ccLogger.log_combined})
+  	gui_or_new(checkboxes2,{type="checkbox", name="ccl_log_red",caption={"ccl-checkbox-log-red"}, state = ccLogger.log_red})
+  	gui_or_new(checkboxes2,{type="checkbox", name="ccl_log_green",caption={"ccl-checkbox-log-green"}, state = ccLogger.log_green})
+  	gui_or_new(checkboxes2,{type="checkbox", name="ccl_log_combined",caption={"ccl-checkbox-log-combined"}, state = ccLogger.log_combined})
     
    	ignored_flow = gui_or_new(gui,{type="flow", name="ignored_flow",direction="horizontal"})
-  	gui_or_new(ignored_flow,{type="label", name="ccl_ignored_label", caption={"ignored-signals-caption"}})
+  	gui_or_new(ignored_flow,{type="label", name="ccl_ignored_label", caption={"ccl-ignored-signals-caption"}})
   	gui_or_new(ignored_flow,{type="textfield", name="ccl_ignored", text=join(ccLogger.ignored_signals,","), style="wide_textbox_style_circuit_logger"})
     
    	aliases_flow = gui_or_new(gui,{type="flow", name="aliases_flow",direction="horizontal"})
-  	gui_or_new(aliases_flow,{type="label", name="ccl_aliases_label", caption={"signal-aliases-caption"}})
+  	gui_or_new(aliases_flow,{type="label", name="ccl_aliases_label", caption={"ccl-signal-aliases-caption"}})
   	gui_or_new(aliases_flow,{type="textfield", name="ccl_aliases", text=join_key_value(ccLogger.signal_aliases,"=",","), style="wide_textbox_style_circuit_logger"})
 
   	buttons = gui_or_new(gui,{type="flow", name="buttons",direction="horizontal"})
-  	gui_or_new(buttons,{type="button", name="ccl_save", caption={"msg-button-save"}, })
+  	gui_or_new(buttons,{type="button", name="ccl_save", caption={"ccl-button-save"}, })
     
   end  
   return gui
